@@ -1,7 +1,1 @@
-{
-    "name": "HubSpot CRM Associations Schema API",
-    "baseUrl": "https://api.hubapi.com/crm/v4/associations",
-    "documentationUrl": "https://developers.hubspot.com/docs/reference/api/crm/associations/associations-schema",
-    "description": "The HubSpot CRM Associations Schema API enables understanding and defining relationships between different types of CRM records and activities. It allows you to manage how different CRM objects can relate to one another and create custom associations",
-    "tags": ["crm", "associations", "schema", "relationships", "hubspot", "definitions"]
-}
+{"name":"HubSpot CRM Associations Schema API", "baseUrl":"https://api.hubapi.com", "documentationUrl":"https://developers.hubspot.com/docs/api/crm/associations", "description":"HubSpot CRM Associations Schema API", "tags":["crm", "associations", "schema"]}
