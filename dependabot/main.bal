@@ -355,9 +355,11 @@ function listGitHubDirectoryRecursive(string owner, string repo, string branch, 
 }
 
 // Extract version number from path for comparison (handles rollout numbers and version numbers)
-function extractVersionNumbers(string filePath) returns [int, int] {
+// Returns [rolloutNum, majorVersion, minorVersion] for proper comparison
+function extractVersionNumbers(string filePath) returns [int, int, int] {
     int rolloutNum = 0;
-    int versionNum = 0;
+    int majorVersion = 0;
+    int minorVersion = 0;
 
     // Extract rollout number (e.g., "Rollouts/148901/v4" -> 148901)
     regexp:Groups? rolloutGroups = re `Rollouts/([0-9]+)`.findGroups(filePath);
@@ -371,19 +373,48 @@ function extractVersionNumbers(string filePath) returns [int, int] {
         }
     }
 
-    // Extract version number (e.g., "v4" -> 4, "v3" -> 3)
+    // Extract version number from path (e.g., "/v4/" -> 4)
     regexp:Groups? versionGroups = re `/v([0-9]+)/`.findGroups(filePath);
     if versionGroups is regexp:Groups && versionGroups.length() > 1 {
         regexp:Span? span = versionGroups[1];
         if span is regexp:Span {
             int|error num = int:fromString(span.substring());
             if num is int {
-                versionNum = num;
+                majorVersion = num;
             }
         }
     }
 
-    return [rolloutNum, versionNum];
+    // Extract version from filename (e.g., "swagger-v2.1.json" -> major=2, minor=1)
+    // or "swagger-v2.json" -> major=2, minor=0
+    regexp:Groups? fileVersionGroups = re `-v([0-9]+)\.([0-9]+)\.`.findGroups(filePath);
+    if fileVersionGroups is regexp:Groups && fileVersionGroups.length() > 2 {
+        regexp:Span? majorSpan = fileVersionGroups[1];
+        regexp:Span? minorSpan = fileVersionGroups[2];
+        if majorSpan is regexp:Span && minorSpan is regexp:Span {
+            int|error majorNum = int:fromString(majorSpan.substring());
+            int|error minorNum = int:fromString(minorSpan.substring());
+            if majorNum is int && minorNum is int {
+                majorVersion = majorNum;
+                minorVersion = minorNum;
+            }
+        }
+    } else {
+        // Try pattern like "-v2.json" (no minor version)
+        regexp:Groups? fileVersionSimple = re `-v([0-9]+)\.json`.findGroups(filePath);
+        if fileVersionSimple is regexp:Groups && fileVersionSimple.length() > 1 {
+            regexp:Span? majorSpan = fileVersionSimple[1];
+            if majorSpan is regexp:Span {
+                int|error majorNum = int:fromString(majorSpan.substring());
+                if majorNum is int {
+                    majorVersion = majorNum;
+                    minorVersion = 0;
+                }
+            }
+        }
+    }
+
+    return [rolloutNum, majorVersion, minorVersion];
 }
 
 // Find the best matching file (highest rollout + highest version)
@@ -393,7 +424,8 @@ function findBestMatchingFile(string[] files, string specPathRegex) returns stri
 
     string? bestFile = ();
     int bestRollout = -1;
-    int bestVersion = -1;
+    int bestMajorVersion = -1;
+    int bestMinorVersion = -1;
 
     // Compile regex pattern
     regexp:RegExp pattern = check regexp:fromString(specPathRegex);
@@ -403,17 +435,34 @@ function findBestMatchingFile(string[] files, string specPathRegex) returns stri
         string[] pathParts = regexp:split(re `/`, filePath);
         string fileName = pathParts[pathParts.length() - 1];
 
+        // Skip "Collection" files - these are Postman collections, not OpenAPI specs
+        if fileName.includes("Collection") {
+            continue;
+        }
+
         // Check if filename matches pattern
         boolean matches = pattern.isFullMatch(fileName);
 
         if matches {
-            [int, int] [rollout, version] = extractVersionNumbers(filePath);
-            print(string `Match: ${filePath} (rollout: ${rollout}, version: ${version})`, "Info", 3);
+            [int, int, int] [rollout, majorVer, minorVer] = extractVersionNumbers(filePath);
+            print(string `Match: ${filePath} (rollout: ${rollout}, version: ${majorVer}.${minorVer})`, "Info", 3);
 
-            // Compare: first by rollout, then by version
-            if rollout > bestRollout || (rollout == bestRollout && version > bestVersion) {
+            // Compare: first by rollout, then by major version, then by minor version
+            boolean isBetter = false;
+            if rollout > bestRollout {
+                isBetter = true;
+            } else if rollout == bestRollout {
+                if majorVer > bestMajorVersion {
+                    isBetter = true;
+                } else if majorVer == bestMajorVersion && minorVer > bestMinorVersion {
+                    isBetter = true;
+                }
+            }
+
+            if isBetter {
                 bestRollout = rollout;
-                bestVersion = version;
+                bestMajorVersion = majorVer;
+                bestMinorVersion = minorVer;
                 bestFile = filePath;
             }
         }
@@ -428,7 +477,7 @@ function findBestMatchingFile(string[] files, string specPathRegex) returns stri
 }
 
 // Process repository with release-tag based strategy
-function processReleaseTagRepo(github:Client githubClient, string specKey, SpecEntry spec) returns UpdateResult|error? {
+function processReleaseTagRepo(github:Client githubClient, string specKey, SpecEntry spec, string token) returns UpdateResult|error? {
     print(string `Checking: ${spec.name} [Release-Tag Strategy]`, "Info", 0);
 
     // Parse the parent directory URL
@@ -468,9 +517,25 @@ function processReleaseTagRepo(github:Client githubClient, string specKey, SpecE
         print(string `Published: ${publishedAt}`, "Info", 1);
     }
 
-    // For release-tag strategy, use basePath + first matching file
-    // First, we need to find a file matching the specPath regex
-    string specFilePath = basePath.length() > 0 ? basePath + "/spec3.yaml" : "openapi/spec3.yaml";
+    // For release-tag strategy, list files in the directory and find the best match using specPath regex
+    print(string `Listing files in ${basePath} to find spec matching pattern: ${spec.specPath}`, "Info", 1);
+
+    // List files using release tag as branch
+    string[]|error allFiles = listGitHubDirectoryRecursive(owner, repo, tagName, basePath, token);
+    if allFiles is error {
+        print(string `Failed to list files: ${allFiles.message()}`, "Error", 1);
+        return allFiles;
+    }
+
+    // Find best matching file using the specPath regex
+    string|error bestFileResult = findBestMatchingFile(allFiles, spec.specPath);
+    if bestFileResult is error {
+        print(string `No matching spec file found: ${bestFileResult.message()}`, "Error", 1);
+        return bestFileResult;
+    }
+
+    string specFilePath = bestFileResult;
+    print(string `Selected spec file: ${specFilePath}`, "Info", 1);
 
     // Download the spec
     string|error specContent = downloadRawFile(owner, repo, tagName, specFilePath);
@@ -607,7 +672,7 @@ function processFileBasedRepo(string specKey, SpecEntry spec, string token) retu
     print(string `API Version: ${apiVersion}`, "Info", 1);
 
     // Extract rollout number from path for version tracking
-    [int, int] [rolloutNum, _] = extractVersionNumbers(bestFile);
+    [int, int, int] [rolloutNum, _, _] = extractVersionNumbers(bestFile);
     string newVersion = rolloutNum > 0 ? rolloutNum.toString() : apiVersion;
 
     boolean versionChanged = hasVersionChanged(spec.lastVersion, newVersion);
@@ -722,7 +787,7 @@ public function main() returns error? {
         UpdateResult|error? result = ();
 
         if spec.resolution.strategy == RELEASE_TAG_BASED {
-            result = processReleaseTagRepo(githubClient, specKey, spec);
+            result = processReleaseTagRepo(githubClient, specKey, spec, token);
         } else if spec.resolution.strategy == FILE_BASED {
             result = processFileBasedRepo(specKey, spec, token);
         } else {

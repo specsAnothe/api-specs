@@ -78,7 +78,7 @@
         "hubspot.crm.associations": {
             "name": "HubSpot CRM Associations API",
             "lastVersion": "50914",
-            "specPath": "^.*\\.(yaml|json)$",
+            "specPath": "^associations\\.(yaml|json)$",
             "documentationUrl": "https://developers.hubspot.com/docs/api/crm/associations",
             "branch": "main",
             "connectorRepo": "orgBalLib/module-ballerinax-hubspot.crm.associations",
