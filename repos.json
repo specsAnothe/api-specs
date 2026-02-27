@@ -1,6 +1,7 @@
 {
-    "specMetadata": {
-        "stripe": {
+    "specMetadata": [
+        {
+            "identifier": "stripe.stripe",
             "name": "Stripe API",
             "lastVersion": "v2153",
             "specPath": "^spec[0-9]*\\.(yaml|json)$",
@@ -12,7 +13,8 @@
                 "strategy": "release-tag-based"
             }
         },
-        "twilio": {
+        {
+            "identifier": "twilio.twilio",
             "name": "Twilio API",
             "lastVersion": "2.6.1",
             "specPath": "^twilio_api_v[0-9]+\\.(yaml|json)$",
@@ -24,7 +26,8 @@
                 "strategy": "release-tag-based"
             }
         },
-        "openai": {
+        {
+            "identifier": "openai.openai",
             "name": "OpenAI API",
             "lastVersion": "2.0.0",
             "specPath": "^openapi\\.(yaml|json)$",
@@ -36,7 +39,8 @@
                 "strategy": "release-tag-based"
             }
         },
-        "docusign.admin": {
+        {
+            "identifier": "docusign.admin",
             "name": "DocuSign Admin API",
             "lastVersion": "2.1",
             "specPath": "^admin\\.rest\\.swagger-v[0-9.]+\\.json$",
@@ -49,7 +53,8 @@
                 "strategy": "file-based"
             }
         },
-        "docusign.click": {
+        {
+            "identifier": "docusign.click",
             "name": "DocuSign Click API",
             "lastVersion": "2.0",
             "specPath": "^click\\.rest\\.swagger-v[0-9.]+\\.json$",
@@ -62,7 +67,8 @@
                 "strategy": "file-based"
             }
         },
-        "docusign.esignature": {
+        {
+            "identifier": "docusign.esignature",
             "name": "DocuSign eSignature API",
             "lastVersion": "2.1",
             "specPath": "^esignature\\.rest\\.swagger-v[0-9.]+\\.json$",
@@ -75,7 +81,8 @@
                 "strategy": "file-based"
             }
         },
-        "hubspot.crm.associations": {
+        {
+            "identifier": "hubspot.crm.associations",
             "name": "HubSpot CRM Associations API",
             "lastVersion": "50914",
             "specPath": "^associations\\.(yaml|json)$",
@@ -88,5 +95,5 @@
                 "strategy": "file-based"
             }
         }
-    }
+    ]
 }

@@ -42,6 +42,7 @@ type Resolution record {|
 
 // Spec metadata entry record type
 type SpecEntry record {|
+    string identifier;
     string name;
     string lastVersion;
     string specPath;
@@ -54,12 +55,12 @@ type SpecEntry record {|
 
 // Root config record type
 type SpecMetadataConfig record {|
-    map<SpecEntry> specMetadata;
+    SpecEntry[] specMetadata;
 |};
 
 // Update result record
 type UpdateResult record {|
-    string specKey;
+    string identifier;
     SpecEntry spec;
     string oldVersion;
     string newVersion;
@@ -477,7 +478,7 @@ function findBestMatchingFile(string[] files, string specPathRegex) returns stri
 }
 
 // Process repository with release-tag based strategy
-function processReleaseTagRepo(github:Client githubClient, string specKey, SpecEntry spec, string token) returns UpdateResult|error? {
+function processReleaseTagRepo(github:Client githubClient, SpecEntry spec, string token) returns UpdateResult|error? {
     print(string `Checking: ${spec.name} [Release-Tag Strategy]`, "Info", 0);
 
     // Parse the parent directory URL
@@ -566,7 +567,7 @@ function processReleaseTagRepo(github:Client githubClient, string specKey, SpecE
 
     print(string `API Version: ${apiVersion}`, "Info", 1);
 
-    string versionDir = "../openapi/" + specKey + "/" + apiVersion;
+    string versionDir = "../openapi/" + spec.identifier + "/" + apiVersion;
 
     // Check if spec file already exists
     boolean fileExists = check specFileExists(versionDir);
@@ -588,10 +589,10 @@ function processReleaseTagRepo(github:Client githubClient, string specKey, SpecE
     spec.lastVersion = tagName;
     spec.lastContentHash = contentHash;
 
-    string folderPath = "openapi/" + specKey + "/" + apiVersion;
+    string folderPath = "openapi/" + spec.identifier + "/" + apiVersion;
 
     return {
-        specKey: specKey,
+        identifier: spec.identifier,
         spec: spec,
         oldVersion: oldVersion,
         newVersion: tagName,
@@ -605,7 +606,7 @@ function processReleaseTagRepo(github:Client githubClient, string specKey, SpecE
 }
 
 // Process repository with file-based strategy (handles both simple file-based and rollout-based)
-function processFileBasedRepo(string specKey, SpecEntry spec, string token) returns UpdateResult|error? {
+function processFileBasedRepo(SpecEntry spec, string token) returns UpdateResult|error? {
     print(string `Checking: ${spec.name} [File-Based Strategy]`, "Info", 0);
 
     // Parse the parent directory URL
@@ -685,8 +686,8 @@ function processFileBasedRepo(string specKey, SpecEntry spec, string token) retu
     string updateType = versionChanged && contentChanged ? "both" : (versionChanged ? "version" : "content");
     print(string `UPDATE DETECTED! (${spec.lastVersion} -> ${newVersion}, Type: ${updateType})`, "Info", 1);
 
-    // Structure: openapi/{specKey}/{apiVersion}/
-    string versionDir = "../openapi/" + specKey + "/" + apiVersion;
+    // Structure: openapi/{identifier}/{apiVersion}/
+    string versionDir = "../openapi/" + spec.identifier + "/" + apiVersion;
 
     // For file-based, we always update to latest (remove old if exists)
     string fileExtension = getFileExtension(specContent);
@@ -717,10 +718,10 @@ function processFileBasedRepo(string specKey, SpecEntry spec, string token) retu
     spec.lastVersion = newVersion;
     spec.lastContentHash = contentHash;
 
-    string folderPath = "openapi/" + specKey + "/" + apiVersion;
+    string folderPath = "openapi/" + spec.identifier + "/" + apiVersion;
 
     return {
-        specKey: specKey,
+        identifier: spec.identifier,
         spec: spec,
         oldVersion: oldVersion,
         newVersion: newVersion,
@@ -783,21 +784,22 @@ public function main() returns error? {
     UpdateResult[] updates = [];
 
     // Check each specification based on strategy
-    foreach [string, SpecEntry] [specKey, spec] in config.specMetadata.entries() {
+    foreach int i in 0 ..< config.specMetadata.length() {
+        SpecEntry spec = config.specMetadata[i];
         UpdateResult|error? result = ();
 
         if spec.resolution.strategy == RELEASE_TAG_BASED {
-            result = processReleaseTagRepo(githubClient, specKey, spec, token);
+            result = processReleaseTagRepo(githubClient, spec, token);
         } else if spec.resolution.strategy == FILE_BASED {
-            result = processFileBasedRepo(specKey, spec, token);
+            result = processFileBasedRepo(spec, token);
         } else {
             print(string `Unknown strategy: ${spec.resolution.strategy}`, "Warn", 0);
         }
 
         if result is UpdateResult {
             updates.push(result);
-            // Update the spec in config
-            config.specMetadata[specKey] = result.spec;
+            // Update the spec in config array
+            config.specMetadata[i] = result.spec;
         }
 
         io:println("");
@@ -811,8 +813,8 @@ public function main() returns error? {
 
         string[] updateSummary = [];
         foreach UpdateResult update in updates {
-            string summary = string `${update.specKey}:${update.apiVersion}`;
-            print(string `${update.specKey}: ${update.oldVersion} -> ${update.newVersion} (${update.updateType} update)`, "Info", 1);
+            string summary = string `${update.identifier}:${update.apiVersion}`;
+            print(string `${update.identifier}: ${update.oldVersion} -> ${update.newVersion} (${update.updateType} update)`, "Info", 1);
             updateSummary.push(summary);
         }
 
