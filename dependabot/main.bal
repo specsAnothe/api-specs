@@ -43,7 +43,6 @@ type Resolution record {|
 // Spec metadata entry record type
 type SpecEntry record {|
     string identifier;
-    string name;
     string lastVersion;
     string specPath;
     string documentationUrl;
@@ -479,7 +478,7 @@ function findBestMatchingFile(string[] files, string specPathRegex) returns stri
 
 // Process repository with release-tag based strategy
 function processReleaseTagRepo(github:Client githubClient, SpecEntry spec, string token) returns UpdateResult|error? {
-    print(string `Checking: ${spec.name} [Release-Tag Strategy]`, "Info", 0);
+    print(string `Checking: ${spec.identifier} [Release-Tag Strategy]`, "Info", 0);
 
     // Parse the parent directory URL
     [string, string, string, string]|error urlParts = parseGitHubUrl(spec.resolution.parentDirectory);
@@ -607,7 +606,7 @@ function processReleaseTagRepo(github:Client githubClient, SpecEntry spec, strin
 
 // Process repository with file-based strategy (handles both simple file-based and rollout-based)
 function processFileBasedRepo(SpecEntry spec, string token) returns UpdateResult|error? {
-    print(string `Checking: ${spec.name} [File-Based Strategy]`, "Info", 0);
+    print(string `Checking: ${spec.identifier} [File-Based Strategy]`, "Info", 0);
 
     // Parse the parent directory URL
     [string, string, string, string]|error urlParts = parseGitHubUrl(spec.resolution.parentDirectory);
