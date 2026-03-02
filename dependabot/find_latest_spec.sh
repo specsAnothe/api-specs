@@ -134,13 +134,14 @@ fi
 echo "[DEBUG] Extracted API version: $API_VERSION" >&2
 
 # Get the relative path from the base directory
+# Remove leading ./ from BEST_FILE first
+BEST_FILE="${BEST_FILE#./}"
+
 if [ -n "$BASE_PATH" ]; then
     RELATIVE_PATH="$BASE_PATH/$BEST_FILE"
 else
     RELATIVE_PATH="$BEST_FILE"
 fi
-# Remove leading ./
-RELATIVE_PATH="${RELATIVE_PATH#./}"
 
 # Output JSON result (to stdout)
 cat <<EOF
