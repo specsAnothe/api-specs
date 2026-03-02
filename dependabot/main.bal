@@ -457,6 +457,7 @@ function findBestMatchingFile(string[] files, string specPathRegex) returns stri
             print(string `Match: ${filePath} (rollout: ${rollout}, version: ${majorVer}.${minorVer})`, "Info", 3);
 
             // Compare: first by rollout, then by major version, then by minor version
+            // If all are equal, prefer YAML over JSON
             boolean isBetter = false;
             if rollout > bestRollout {
                 isBetter = true;
@@ -465,6 +466,15 @@ function findBestMatchingFile(string[] files, string specPathRegex) returns stri
                     isBetter = true;
                 } else if majorVer == bestMajorVersion && minorVer > bestMinorVersion {
                     isBetter = true;
+                } else if majorVer == bestMajorVersion && minorVer == bestMinorVersion {
+                    // Same version - prefer YAML over JSON
+                    if bestFile is string {
+                        boolean currentIsYaml = fileName.endsWith(".yaml") || fileName.endsWith(".yml");
+                        boolean bestIsYaml = bestFile.endsWith(".yaml") || bestFile.endsWith(".yml");
+                        if currentIsYaml && !bestIsYaml {
+                            isBetter = true;
+                        }
+                    }
                 }
             }
 
