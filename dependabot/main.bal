@@ -79,6 +79,15 @@ type FileInfo record {|
     int rolloutNum;
 |};
 
+// Bash script result record
+type BashScriptResult record {
+    string filePath;
+    string apiVersion;
+    int rollout;
+    int majorVersion;
+    int minorVersion;
+};
+
 // Check for version updates
 function hasVersionChanged(string oldVersion, string newVersion) returns boolean {
     return oldVersion != newVersion;
@@ -604,7 +613,7 @@ function processReleaseTagRepo(github:Client githubClient, SpecEntry spec, strin
     };
 }
 
-// Process repository with file-based strategy (handles both simple file-based and rollout-based)
+// Process repository with file-based strategy (uses bash script to clone and find spec)
 function processFileBasedRepo(SpecEntry spec, string token) returns UpdateResult|error? {
     print(string `Checking: ${spec.identifier} [File-Based Strategy]`, "Info", 0);
 
@@ -625,54 +634,73 @@ function processFileBasedRepo(SpecEntry spec, string token) returns UpdateResult
     print(string `Base path: ${basePath}`, "Info", 1);
     print(string `Spec pattern: ${spec.specPath}`, "Info", 1);
 
-    // Step 1: List all files in the directory recursively
-    print("Fetching file list from GitHub...", "Info", 1);
-    string[]|error allFiles = listGitHubDirectoryRecursive(owner, repo, actualBranch, basePath, token);
+    // Construct repository URL
+    string repoUrl = string `https://github.com/${owner}/${repo}.git`;
 
-    if allFiles is error {
-        print(string `Failed to list files: ${allFiles.message()}`, "Error", 1);
-        return allFiles;
+    // Call bash script to find the latest spec file
+    print("Running bash script to clone and find latest spec...", "Info", 1);
+
+    string scriptPath = "./find_latest_spec.sh";
+
+    os:Process|error result = os:exec(
+        {value: scriptPath, arguments: [repoUrl, actualBranch, basePath, spec.specPath]}
+    );
+
+    if result is error {
+        print(string `Failed to execute bash script: ${result.message()}`, "Error", 1);
+        return result;
     }
 
-    print(string `Found ${allFiles.length()} files`, "Info", 1);
+    os:Process process = result;
 
-    // Step 2: Find the best matching file (highest rollout + version)
-    string|error bestFile = findBestMatchingFile(allFiles, spec.specPath);
+    // Wait for process to complete and get exit code
+    int exitCode = check process.waitForExit();
 
-    if bestFile is error {
-        print(string `No matching files found: ${bestFile.message()}`, "Error", 1);
-        return bestFile;
+    if exitCode != 0 {
+        print(string `Bash script failed with exit code ${exitCode}`, "Error", 1);
+        return error(string `Bash script exited with code ${exitCode}`);
     }
 
-    print(string `Selected file: ${bestFile}`, "Info", 1);
+    // Read stdout (JSON result)
+    byte[]|error outputBytes = process.output();
+    if outputBytes is error {
+        print(string `Failed to get output: ${outputBytes.message()}`, "Error", 1);
+        return outputBytes;
+    }
 
-    // Step 3: Download the spec file
-    string|error specContent = downloadRawFile(owner, repo, actualBranch, bestFile);
+    string output = check string:fromBytes(outputBytes);
+    print(string `Bash script output: ${output}`, "Info", 2);
+
+    // Parse JSON result
+    json|error jsonResult = jsondata:parseString(output);
+    if jsonResult is error {
+        print(string `Failed to parse bash script output: ${jsonResult.message()}`, "Error", 1);
+        return jsonResult;
+    }
+
+    BashScriptResult scriptResult = check jsonResult.cloneWithType();
+
+    print(string `Selected file: ${scriptResult.filePath}`, "Info", 1);
+    print(string `API Version: ${scriptResult.apiVersion}`, "Info", 1);
+
+    // Download the spec file
+    string|error specContent = downloadRawFile(owner, repo, actualBranch, scriptResult.filePath);
 
     if specContent is error {
         print("Download failed: " + specContent.message(), "Error", 1);
         return specContent;
     }
 
-    // Step 4: Calculate content hash and extract version
+    // Calculate content hash
     string contentHash = calculateHash(specContent);
     boolean contentChanged = hasContentChanged(spec.lastContentHash, contentHash);
 
     print(string `Content Hash: ${contentHash.substring(0, 16)}...`, "Info", 1);
 
-    // Extract API version from spec content
-    string|error apiVersionResult = extractApiVersion(specContent);
-
-    if apiVersionResult is error {
-        print("Could not extract API version from spec content", "Error", 1);
-        return apiVersionResult;
-    }
-
-    string apiVersion = apiVersionResult;
-    print(string `API Version: ${apiVersion}`, "Info", 1);
+    string apiVersion = scriptResult.apiVersion;
 
     // Extract rollout number from path for version tracking
-    [int, int, int] [rolloutNum, _, _] = extractVersionNumbers(bestFile);
+    int rolloutNum = scriptResult.rollout;
     string newVersion = rolloutNum > 0 ? rolloutNum.toString() : apiVersion;
 
     boolean versionChanged = hasVersionChanged(spec.lastVersion, newVersion);
@@ -725,7 +753,7 @@ function processFileBasedRepo(SpecEntry spec, string token) returns UpdateResult
         oldVersion: oldVersion,
         newVersion: newVersion,
         apiVersion: apiVersion,
-        downloadUrl: string `https://github.com/${owner}/${repo}/blob/${actualBranch}/${bestFile}`,
+        downloadUrl: string `https://github.com/${owner}/${repo}/blob/${actualBranch}/${scriptResult.filePath}`,
         localPath: localPath,
         contentChanged: contentChanged,
         updateType: updateType,

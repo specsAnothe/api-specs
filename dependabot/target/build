@@ -1,0 +1,64 @@
+{
+  "last_build_time": 1772457169069,
+  "last_update_time": 1772457169069,
+  "last_bal_toml_update_time": 1772081972849,
+  "distribution_version": "2201.13.1",
+  "last_modified_time": {
+    "openapi_dependabot": 1772457143772
+  },
+  "last_build_options": {
+    "testReport": false,
+    "codeCoverage": false,
+    "skipTests": true,
+    "compilationOptions": {
+      "experimental": false,
+      "observabilityIncluded": false,
+      "cloud": "",
+      "dumpGraph": false,
+      "dumpRawGraphs": false
+    }
+  },
+  "src_meta_info": [
+    {
+      "file": "/Users/tharanij/Documents/GitHub/api-specs-dif/dependabot/main.bal",
+      "hash": "03e4625beb280b8bb104b22e3867811ba88dc3d5e5398ebd18b09f095d0d559d",
+      "size": 31127,
+      "lastModifiedTime": 1772457143772
+    },
+    {
+      "file": "/Users/tharanij/Documents/GitHub/api-specs-dif/dependabot/Ballerina.toml",
+      "hash": "52f0c69b49e3e38d835d7924fa95e850e34c336c721567fe8b841a2512ed62e5",
+      "size": 148,
+      "lastModifiedTime": 1772081972849
+    }
+  ],
+  "target_exec_meta_info": {
+    "file": "/Users/tharanij/Documents/GitHub/api-specs-dif/dependabot/target/backup/bin/openapi_dependabot.jar",
+    "hash": "580d91355f315b58b7c18a2f9195680f497b7ffd3f9c0774f039cf505c5f35cf",
+    "size": 59372497,
+    "lastModifiedTime": 1772457171937
+  },
+  "settings_meta_info": {
+    "file": "/Users/tharanij/.ballerina/Settings.toml",
+    "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size": 0,
+    "lastModifiedTime": 1764818857132
+  },
+  "ballerina_toml_meta_info": {
+    "file": "/Users/tharanij/Documents/GitHub/api-specs-dif/dependabot/Ballerina.toml",
+    "hash": "52f0c69b49e3e38d835d7924fa95e850e34c336c721567fe8b841a2512ed62e5",
+    "size": 148,
+    "lastModifiedTime": 1772081972849
+  },
+  "imports": [
+    "ballerina/crypto",
+    "ballerina/data.jsondata",
+    "ballerina/data.yaml",
+    "ballerina/file",
+    "ballerinax/github",
+    "ballerina/http",
+    "ballerina/io",
+    "ballerina/lang.regexp",
+    "ballerina/os"
+  ]
+}
