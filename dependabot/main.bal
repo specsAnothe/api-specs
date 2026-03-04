@@ -83,9 +83,7 @@ type FileInfo record {|
 type BashScriptResult record {
     string filePath;
     string apiVersion;
-    int rollout;
-    int majorVersion;
-    int minorVersion;
+    string lastCommitDate;
 };
 
 // Check for version updates
@@ -363,78 +361,14 @@ function listGitHubDirectoryRecursive(string owner, string repo, string branch, 
     return error("Unexpected response format from GitHub API");
 }
 
-// Extract version number from path for comparison (handles rollout numbers and version numbers)
-// Returns [rolloutNum, majorVersion, minorVersion] for proper comparison
-function extractVersionNumbers(string filePath) returns [int, int, int] {
-    int rolloutNum = 0;
-    int majorVersion = 0;
-    int minorVersion = 0;
 
-    // Extract rollout number (e.g., "Rollouts/148901/v4" -> 148901)
-    regexp:Groups? rolloutGroups = re `Rollouts/([0-9]+)`.findGroups(filePath);
-    if rolloutGroups is regexp:Groups && rolloutGroups.length() > 1 {
-        regexp:Span? span = rolloutGroups[1];
-        if span is regexp:Span {
-            int|error num = int:fromString(span.substring());
-            if num is int {
-                rolloutNum = num;
-            }
-        }
-    }
 
-    // Extract version number from path (e.g., "/v4/" -> 4)
-    regexp:Groups? versionGroups = re `/v([0-9]+)/`.findGroups(filePath);
-    if versionGroups is regexp:Groups && versionGroups.length() > 1 {
-        regexp:Span? span = versionGroups[1];
-        if span is regexp:Span {
-            int|error num = int:fromString(span.substring());
-            if num is int {
-                majorVersion = num;
-            }
-        }
-    }
-
-    // Extract version from filename (e.g., "swagger-v2.1.json" -> major=2, minor=1)
-    // or "swagger-v2.json" -> major=2, minor=0
-    regexp:Groups? fileVersionGroups = re `-v([0-9]+)\.([0-9]+)\.`.findGroups(filePath);
-    if fileVersionGroups is regexp:Groups && fileVersionGroups.length() > 2 {
-        regexp:Span? majorSpan = fileVersionGroups[1];
-        regexp:Span? minorSpan = fileVersionGroups[2];
-        if majorSpan is regexp:Span && minorSpan is regexp:Span {
-            int|error majorNum = int:fromString(majorSpan.substring());
-            int|error minorNum = int:fromString(minorSpan.substring());
-            if majorNum is int && minorNum is int {
-                majorVersion = majorNum;
-                minorVersion = minorNum;
-            }
-        }
-    } else {
-        // Try pattern like "-v2.json" (no minor version)
-        regexp:Groups? fileVersionSimple = re `-v([0-9]+)\.json`.findGroups(filePath);
-        if fileVersionSimple is regexp:Groups && fileVersionSimple.length() > 1 {
-            regexp:Span? majorSpan = fileVersionSimple[1];
-            if majorSpan is regexp:Span {
-                int|error majorNum = int:fromString(majorSpan.substring());
-                if majorNum is int {
-                    majorVersion = majorNum;
-                    minorVersion = 0;
-                }
-            }
-        }
-    }
-
-    return [rolloutNum, majorVersion, minorVersion];
-}
-
-// Find the best matching file (highest rollout + highest version)
+// Find the best matching file - prefer YAML over JSON when multiple matches
 function findBestMatchingFile(string[] files, string specPathRegex) returns string|error {
     print(string `Finding best match for regex: ${specPathRegex}`, "Info", 2);
     print(string `Total files to search: ${files.length()}`, "Info", 2);
 
     string? bestFile = ();
-    int bestRollout = -1;
-    int bestMajorVersion = -1;
-    int bestMinorVersion = -1;
 
     // Compile regex pattern
     regexp:RegExp pattern = check regexp:fromString(specPathRegex);
@@ -453,36 +387,21 @@ function findBestMatchingFile(string[] files, string specPathRegex) returns stri
         boolean matches = pattern.isFullMatch(fileName);
 
         if matches {
-            [int, int, int] [rollout, majorVer, minorVer] = extractVersionNumbers(filePath);
-            print(string `Match: ${filePath} (rollout: ${rollout}, version: ${majorVer}.${minorVer})`, "Info", 3);
+            print(string `Match: ${filePath}`, "Info", 3);
 
-            // Compare: first by rollout, then by major version, then by minor version
-            // If all are equal, prefer YAML over JSON
-            boolean isBetter = false;
-            if rollout > bestRollout {
-                isBetter = true;
-            } else if rollout == bestRollout {
-                if majorVer > bestMajorVersion {
-                    isBetter = true;
-                } else if majorVer == bestMajorVersion && minorVer > bestMinorVersion {
-                    isBetter = true;
-                } else if majorVer == bestMajorVersion && minorVer == bestMinorVersion {
-                    // Same version - prefer YAML over JSON
-                    if bestFile is string {
-                        boolean currentIsYaml = fileName.endsWith(".yaml") || fileName.endsWith(".yml");
-                        boolean bestIsYaml = bestFile.endsWith(".yaml") || bestFile.endsWith(".yml");
-                        if currentIsYaml && !bestIsYaml {
-                            isBetter = true;
-                        }
-                    }
-                }
-            }
-
-            if isBetter {
-                bestRollout = rollout;
-                bestMajorVersion = majorVer;
-                bestMinorVersion = minorVer;
+            // If no best file yet, or prefer YAML over JSON
+            if bestFile is () {
                 bestFile = filePath;
+            } else {
+                boolean currentIsYaml = fileName.endsWith(".yaml") || fileName.endsWith(".yml");
+                string[] bestPathParts = regexp:split(re `/`, bestFile);
+                string bestFileName = bestPathParts[bestPathParts.length() - 1];
+                boolean bestIsYaml = bestFileName.endsWith(".yaml") || bestFileName.endsWith(".yml");
+
+                // Prefer YAML over JSON
+                if currentIsYaml && !bestIsYaml {
+                    bestFile = filePath;
+                }
             }
         }
     }
@@ -691,6 +610,7 @@ function processFileBasedRepo(SpecEntry spec, string token) returns UpdateResult
 
     print(string `Selected file: ${scriptResult.filePath}`, "Info", 1);
     print(string `API Version: ${scriptResult.apiVersion}`, "Info", 1);
+    print(string `Last commit date: ${scriptResult.lastCommitDate}`, "Info", 1);
 
     // Download the spec file
     string|error specContent = downloadRawFile(owner, repo, actualBranch, scriptResult.filePath);
@@ -708,13 +628,10 @@ function processFileBasedRepo(SpecEntry spec, string token) returns UpdateResult
 
     string apiVersion = scriptResult.apiVersion;
 
-    // Extract rollout number from path for version tracking
-    int rolloutNum = scriptResult.rollout;
-    string newVersion = rolloutNum > 0 ? rolloutNum.toString() : apiVersion;
+    // Use commit date as version tracking for file-based strategy
+    string newVersion = scriptResult.lastCommitDate;
 
-    boolean versionChanged = hasVersionChanged(spec.lastVersion, newVersion);
-
-    if !versionChanged && !contentChanged {
+    boolean versionChanged = hasVersionChanged(spec.lastVersion, newVersion);    if !versionChanged && !contentChanged {
         print(string `No updates (version: ${apiVersion}, content unchanged)`, "Info", 1);
         return ();
     }

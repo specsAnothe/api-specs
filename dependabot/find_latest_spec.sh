@@ -1,7 +1,7 @@
 #!/bin/bash
-# Script to find the latest spec file from a cloned repository
+# Script to find the latest spec file from a cloned repository using commit history
 # Usage: ./find_latest_spec.sh <repo_url> <branch> <base_path> <spec_regex>
-# Output: JSON with {"filePath": "path/to/file", "version": "extracted_version"}
+# Output: JSON with {"filePath": "path/to/file", "apiVersion": "extracted_version", "lastCommitDate": "date"}
 
 set -e
 
@@ -16,8 +16,8 @@ trap "rm -rf $TEMP_DIR" EXIT
 
 echo "[DEBUG] Cloning repository: $REPO_URL (branch: $BRANCH)" >&2
 
-# Clone the repository (shallow clone for speed)
-git clone --depth 1 --branch "$BRANCH" --single-branch "$REPO_URL" "$TEMP_DIR/repo" >&2 2>&1 || {
+# Clone the repository (full clone to get commit history)
+git clone --branch "$BRANCH" --single-branch "$REPO_URL" "$TEMP_DIR/repo" >&2 2>&1 || {
     echo "[ERROR] Failed to clone repository" >&2
     exit 1
 }
@@ -36,14 +36,10 @@ fi
 
 echo "[DEBUG] Searching for files matching regex: $SPEC_REGEX" >&2
 
-# Find all files recursively
-# Filter by regex pattern (matching filename only, not full path)
-# Extract version numbers and find the best match
-
+# Find all files matching the regex pattern
 BEST_FILE=""
-BEST_ROLLOUT=0
-BEST_MAJOR=0
-BEST_MINOR=0
+BEST_COMMIT_DATE=""
+BEST_COMMIT_TIMESTAMP=0
 
 while IFS= read -r file; do
     # Get just the filename
@@ -58,47 +54,17 @@ while IFS= read -r file; do
     if echo "$filename" | grep -E "$SPEC_REGEX" > /dev/null; then
         echo "[DEBUG] Match found: $file" >&2
 
-        # Extract rollout number (e.g., Rollouts/148901/v4)
-        rollout=0
-        if [[ "$file" =~ Rollouts/([0-9]+) ]]; then
-            rollout="${BASH_REMATCH[1]}"
-        fi
+        # Get the last commit date for this file (Unix timestamp for comparison)
+        commit_timestamp=$(git log -1 --format="%ct" -- "$file" 2>/dev/null || echo "0")
+        commit_date=$(git log -1 --format="%ci" -- "$file" 2>/dev/null || echo "unknown")
 
-        # Extract version from path (e.g., /v4/)
-        major=0
-        minor=0
-        if [[ "$file" =~ /v([0-9]+)/ ]]; then
-            major="${BASH_REMATCH[1]}"
-        fi
+        echo "[DEBUG]   Last commit: $commit_date (timestamp: $commit_timestamp)" >&2
 
-        # Extract version from filename (e.g., swagger-v2.1.json)
-        if [[ "$filename" =~ -v([0-9]+)\.([0-9]+)\. ]]; then
-            major="${BASH_REMATCH[1]}"
-            minor="${BASH_REMATCH[2]}"
-        elif [[ "$filename" =~ -v([0-9]+)\.json ]]; then
-            major="${BASH_REMATCH[1]}"
-            minor=0
-        fi
-
-        echo "[DEBUG]   Rollout: $rollout, Major: $major, Minor: $minor" >&2
-
-        # Compare: first by rollout, then by major, then by minor
-        is_better=0
-        if [ "$rollout" -gt "$BEST_ROLLOUT" ]; then
-            is_better=1
-        elif [ "$rollout" -eq "$BEST_ROLLOUT" ]; then
-            if [ "$major" -gt "$BEST_MAJOR" ]; then
-                is_better=1
-            elif [ "$major" -eq "$BEST_MAJOR" ] && [ "$minor" -gt "$BEST_MINOR" ]; then
-                is_better=1
-            fi
-        fi
-
-        if [ "$is_better" -eq 1 ]; then
+        # Compare by commit timestamp (most recent wins)
+        if [ "$commit_timestamp" -gt "$BEST_COMMIT_TIMESTAMP" ]; then
             BEST_FILE="$file"
-            BEST_ROLLOUT=$rollout
-            BEST_MAJOR=$major
-            BEST_MINOR=$minor
+            BEST_COMMIT_DATE="$commit_date"
+            BEST_COMMIT_TIMESTAMP=$commit_timestamp
         fi
     fi
 done < <(find . -type f \( -name "*.json" -o -name "*.yaml" -o -name "*.yml" \))
@@ -108,7 +74,7 @@ if [ -z "$BEST_FILE" ]; then
     exit 1
 fi
 
-echo "[DEBUG] Best match: $BEST_FILE (rollout: $BEST_ROLLOUT, version: $BEST_MAJOR.$BEST_MINOR)" >&2
+echo "[DEBUG] Best match: $BEST_FILE (last commit: $BEST_COMMIT_DATE)" >&2
 
 # Read the file content and extract version from info.version
 FILE_CONTENT=$(cat "$BEST_FILE")
@@ -148,8 +114,6 @@ cat <<EOF
 {
   "filePath": "$RELATIVE_PATH",
   "apiVersion": "$API_VERSION",
-  "rollout": $BEST_ROLLOUT,
-  "majorVersion": $BEST_MAJOR,
-  "minorVersion": $BEST_MINOR
+  "lastCommitDate": "$BEST_COMMIT_DATE"
 }
 EOF
