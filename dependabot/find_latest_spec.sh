@@ -37,9 +37,12 @@ fi
 echo "[DEBUG] Searching for files matching regex: $SPEC_REGEX" >&2
 
 # Find all files matching the regex pattern
+# Strategy: Select file with highest version number in path (v4 > v3)
+# If versions are equal, use most recent commit timestamp
 BEST_FILE=""
 BEST_COMMIT_DATE=""
 BEST_COMMIT_TIMESTAMP=0
+BEST_VERSION_NUM=0
 
 while IFS= read -r file; do
     # Get just the filename
@@ -54,17 +57,31 @@ while IFS= read -r file; do
     if echo "$filename" | grep -E "$SPEC_REGEX" > /dev/null; then
         echo "[DEBUG] Match found: $file" >&2
 
+        # Extract version number from path (e.g., /v4/ -> 4, /v3/ -> 3)
+        version_num=0
+        if [[ "$file" =~ /v([0-9]+)/ ]]; then
+            version_num="${BASH_REMATCH[1]}"
+        fi
+
         # Get the last commit date for this file (Unix timestamp for comparison)
         commit_timestamp=$(git log -1 --format="%ct" -- "$file" 2>/dev/null || echo "0")
         commit_date=$(git log -1 --format="%ci" -- "$file" 2>/dev/null || echo "unknown")
 
-        echo "[DEBUG]   Last commit: $commit_date (timestamp: $commit_timestamp)" >&2
+        echo "[DEBUG]   Version: v$version_num, Last commit: $commit_date (timestamp: $commit_timestamp)" >&2
 
-        # Compare by commit timestamp (most recent wins)
-        if [ "$commit_timestamp" -gt "$BEST_COMMIT_TIMESTAMP" ]; then
+        # Compare: first by version number, then by commit timestamp
+        is_better=0
+        if [ "$version_num" -gt "$BEST_VERSION_NUM" ]; then
+            is_better=1
+        elif [ "$version_num" -eq "$BEST_VERSION_NUM" ] && [ "$commit_timestamp" -gt "$BEST_COMMIT_TIMESTAMP" ]; then
+            is_better=1
+        fi
+
+        if [ "$is_better" -eq 1 ]; then
             BEST_FILE="$file"
             BEST_COMMIT_DATE="$commit_date"
             BEST_COMMIT_TIMESTAMP=$commit_timestamp
+            BEST_VERSION_NUM=$version_num
         fi
     fi
 done < <(find . -type f \( -name "*.json" -o -name "*.yaml" -o -name "*.yml" \))
@@ -74,7 +91,7 @@ if [ -z "$BEST_FILE" ]; then
     exit 1
 fi
 
-echo "[DEBUG] Best match: $BEST_FILE (last commit: $BEST_COMMIT_DATE)" >&2
+echo "[DEBUG] Best match: $BEST_FILE (version: v$BEST_VERSION_NUM, last commit: $BEST_COMMIT_DATE)" >&2
 
 # Read the file content and extract version from info.version
 FILE_CONTENT=$(cat "$BEST_FILE")
