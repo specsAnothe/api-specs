@@ -587,10 +587,9 @@ function processReleaseTagRepo(github:Client githubClient, SpecEntry spec, strin
 
     string versionDir = "../openapi/" + spec.identifier + "/" + apiVersion;
 
-    // Check if spec file already exists
-    boolean fileExists = check specFileExists(versionDir);
-    if fileExists {
-        print(string `Spec file already exists for version ${apiVersion}, skipping save`, "Info", 1);
+    // For release-tag strategy: only update if BOTH version AND content hash changed
+    if !versionChanged || !contentChanged {
+        print(string `Skipping update - need both version and content to change (version changed: ${versionChanged}, content changed: ${contentChanged})`, "Info", 1);
         return ();
     }
 
