@@ -1,0 +1,6 @@
+stripe.stripe:2026-02-25.clover
+twilio.twilio:1.0.0
+docusign.admin:v2.1
+docusign.click:v1
+docusign.esignature:v2.1
+hubspot.crm.associations:v3
