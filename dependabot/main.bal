@@ -631,12 +631,15 @@ function processFileBasedRepo(SpecEntry spec, string token) returns UpdateResult
     // Use commit date as version tracking for file-based strategy
     string newVersion = scriptResult.lastCommitDate;
 
-    boolean versionChanged = hasVersionChanged(spec.lastVersion, newVersion);    if !versionChanged && !contentChanged {
-        print(string `No updates (version: ${apiVersion}, content unchanged)`, "Info", 1);
+    boolean versionChanged = hasVersionChanged(spec.lastVersion, newVersion);
+
+    // CHANGE 1: For file-based strategy, only update if BOTH commit date AND content hash changed
+    if !versionChanged || !contentChanged {
+        print(string `No updates - need both commit date and content to change (commit date changed: ${versionChanged}, content changed: ${contentChanged})`, "Info", 1);
         return ();
     }
 
-    string updateType = versionChanged && contentChanged ? "both" : (versionChanged ? "version" : "content");
+    string updateType = "both";
     print(string `UPDATE DETECTED! (${spec.lastVersion} -> ${newVersion}, Type: ${updateType})`, "Info", 1);
 
     // Structure: openapi/{identifier}/{apiVersion}/

@@ -37,12 +37,13 @@ fi
 echo "[DEBUG] Searching for files matching regex: $SPEC_REGEX" >&2
 
 # Find all files matching the regex pattern
-# Strategy: Select file with highest version number in path (v4 > v3)
+# Strategy: Select file with highest version number in path (v4.2 > v4.1 > v3.0)
 # If versions are equal, use most recent commit timestamp
 BEST_FILE=""
 BEST_COMMIT_DATE=""
 BEST_COMMIT_TIMESTAMP=0
 BEST_VERSION_NUM=0
+BEST_VERSION_STRING=""
 
 while IFS= read -r file; do
     # Get just the filename
@@ -57,17 +58,28 @@ while IFS= read -r file; do
     if echo "$filename" | grep -E "$SPEC_REGEX" > /dev/null; then
         echo "[DEBUG] Match found: $file" >&2
 
-        # Extract version number from path (e.g., /v4/ -> 4, /v3/ -> 3)
+        # CHANGE 2: Extract version number from path with support for semantic versioning
+        # Supports: /v4/, /v4.2/, /v4.2.1/, etc.
         version_num=0
-        if [[ "$file" =~ /v([0-9]+)/ ]]; then
-            version_num="${BASH_REMATCH[1]}"
+        version_string=""
+        if [[ "$file" =~ /v([0-9]+(\.[0-9]+)*)/ ]]; then
+            version_string="${BASH_REMATCH[1]}"
+
+            # Convert to comparable number: v2.1.3 -> 2001003 (assumes max 999 for minor/patch)
+            IFS='.' read -ra VERSION_PARTS <<< "$version_string"
+            major="${VERSION_PARTS[0]:-0}"
+            minor="${VERSION_PARTS[1]:-0}"
+            patch="${VERSION_PARTS[2]:-0}"
+
+            # Create comparable version number (major * 1000000 + minor * 1000 + patch)
+            version_num=$((major * 1000000 + minor * 1000 + patch))
         fi
 
         # Get the last commit date for this file (Unix timestamp for comparison)
         commit_timestamp=$(git log -1 --format="%ct" -- "$file" 2>/dev/null || echo "0")
         commit_date=$(git log -1 --format="%ci" -- "$file" 2>/dev/null || echo "unknown")
 
-        echo "[DEBUG]   Version: v$version_num, Last commit: $commit_date (timestamp: $commit_timestamp)" >&2
+        echo "[DEBUG]   Version: v$version_string (comparable: $version_num), Last commit: $commit_date (timestamp: $commit_timestamp)" >&2
 
         # Compare: first by version number, then by commit timestamp
         is_better=0
@@ -82,6 +94,7 @@ while IFS= read -r file; do
             BEST_COMMIT_DATE="$commit_date"
             BEST_COMMIT_TIMESTAMP=$commit_timestamp
             BEST_VERSION_NUM=$version_num
+            BEST_VERSION_STRING=$version_string
         fi
     fi
 done < <(find . -type f \( -name "*.json" -o -name "*.yaml" -o -name "*.yml" \))
@@ -91,7 +104,7 @@ if [ -z "$BEST_FILE" ]; then
     exit 1
 fi
 
-echo "[DEBUG] Best match: $BEST_FILE (version: v$BEST_VERSION_NUM, last commit: $BEST_COMMIT_DATE)" >&2
+echo "[DEBUG] Best match: $BEST_FILE (version: v$BEST_VERSION_STRING, last commit: $BEST_COMMIT_DATE)" >&2
 
 # Read the file content and extract version from info.version
 FILE_CONTENT=$(cat "$BEST_FILE")
